@@ -1,224 +1,442 @@
 import 'package:flutter/material.dart';
-import '../data/presets.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 import '../models/scene_models.dart';
-import '../painters/background_painter.dart';
+import '../data/presets.dart';
 import '../painters/crest_painter.dart';
 import '../painters/jersey_painter.dart';
-import '../utils/export_utils.dart';
+import 'onboarding_screen.dart';
+import 'studio_screen.dart';
 
-class PresentationScreen extends StatefulWidget {
-  final StudioProject project;
-  final int initialKitIndex;
+class HomeScreen extends StatefulWidget {
+  final SharedPreferences prefs;
+  final bool isDark;
+  final double gridSize;
+  final bool snapToGrid;
+  final int defaultExportSize;
+  final void Function({
+    bool? isDark,
+    double? gridSize,
+    bool? snapToGrid,
+    int? defaultExportSize,
+  }) onUpdateSettings;
 
-  const PresentationScreen({
+  const HomeScreen({
     super.key,
-    required this.project,
-    this.initialKitIndex = 0,
+    required this.prefs,
+    required this.isDark,
+    required this.gridSize,
+    required this.snapToGrid,
+    required this.defaultExportSize,
+    required this.onUpdateSettings,
   });
 
   @override
-  State<PresentationScreen> createState() => _PresentationScreenState();
+  State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _PresentationScreenState extends State<PresentationScreen> {
-  late int _kitIndex;
-  late BackgroundPreset _bgPreset;
-  bool _mannequinMode = true;
-  bool _showAllKitsLineup = false;
+class _HomeScreenState extends State<HomeScreen> {
+  static const String _storageKey = 'crestkit_saved_projects_v1';
+  final Uuid _uuid = const Uuid();
+  List<StudioProject> _projects = [];
 
   @override
   void initState() {
     super.initState();
-    _kitIndex = widget.initialKitIndex;
-    _bgPreset = PresetLibrary.backgrounds.firstWhere(
-      (b) => b.id == widget.project.backgroundId,
-      orElse: () => PresetLibrary.backgrounds.first,
+    _loadProjects();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final seenOnboarding = widget.prefs.getBool('seen_onboarding') ?? false;
+      if (!seenOnboarding && mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => OnboardingScreen(
+              onFinish: () {
+                widget.prefs.setBool('seen_onboarding', true);
+                Navigator.pop(context);
+              },
+            ),
+          ),
+        );
+      }
+    });
+  }
+
+  void _loadProjects() {
+    final rawList = widget.prefs.getStringList(_storageKey);
+    if (rawList != null && rawList.isNotEmpty) {
+      _projects = rawList
+          .map((e) {
+            try {
+              return StudioProject.fromJsonString(e);
+            } catch (_) {
+              return null;
+            }
+          })
+          .whereType<StudioProject>()
+          .toList();
+    }
+    if (_projects.isEmpty) {
+      _projects = [
+        StudioProject(id: 'club_default_1', name: 'CrestKit United FC'),
+      ];
+      _persistProjects();
+    }
+    setState(() {});
+  }
+
+  void _persistProjects() {
+    widget.prefs.setStringList(
+      _storageKey,
+      _projects.map((p) => p.toJsonString()).toList(),
+    );
+  }
+
+  void _saveOrUpdateProject(StudioProject updated) {
+    final idx = _projects.indexWhere((p) => p.id == updated.id);
+    setState(() {
+      if (idx >= 0) {
+        _projects[idx] = updated;
+      } else {
+        _projects.insert(0, updated);
+      }
+    });
+    _persistProjects();
+  }
+
+  void _openProject(StudioProject project) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StudioScreen(
+          project: project,
+          onSave: _saveOrUpdateProject,
+          isDark: widget.isDark,
+          gridSize: widget.gridSize,
+          snapToGrid: widget.snapToGrid,
+          defaultExportSize: widget.defaultExportSize,
+          onUpdateSettings: widget.onUpdateSettings,
+        ),
+      ),
+    );
+  }
+
+  void _createNewProject({KitPresetData? fromPreset}) {
+    final id = 'proj_${_uuid.v4().substring(0, 8)}';
+    final proj = StudioProject(
+      id: id,
+      name: fromPreset != null ? fromPreset.name : 'New Club ${_projects.length + 1}',
+      primaryTeamColor: fromPreset?.primaryColor ?? 0xFFDC2626,
+      secondaryTeamColor: fromPreset?.secondaryColor ?? 0xFFFFFFFF,
+      accentTeamColor: fromPreset?.accentColor ?? 0xFFD4AF37,
+    );
+    if (fromPreset != null) {
+      proj.kits[0] = fromPreset.toKitSet();
+    }
+    _saveOrUpdateProject(proj);
+    _openProject(proj);
+  }
+
+  void _openSettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Studio Settings'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SwitchListTile(
+              title: const Text('Dark Theme'),
+              value: widget.isDark,
+              onChanged: (v) {
+                widget.onUpdateSettings(isDark: v);
+                Navigator.pop(ctx);
+              },
+            ),
+            SwitchListTile(
+              title: const Text('Snap to Grid'),
+              value: widget.snapToGrid,
+              onChanged: (v) {
+                widget.onUpdateSettings(snapToGrid: v);
+                Navigator.pop(ctx);
+              },
+            ),
+            ListTile(
+              title: const Text('Grid Size'),
+              trailing: DropdownButton<double>(
+                value: widget.gridSize,
+                items: const [
+                  DropdownMenuItem(value: 5.0, child: Text('5 px')),
+                  DropdownMenuItem(value: 10.0, child: Text('10 px')),
+                  DropdownMenuItem(value: 20.0, child: Text('20 px')),
+                ],
+                onChanged: (v) {
+                  if (v != null) {
+                    widget.onUpdateSettings(gridSize: v);
+                    Navigator.pop(ctx);
+                  }
+                },
+              ),
+            ),
+            ListTile(
+              title: const Text('Default PNG Export'),
+              trailing: DropdownButton<int>(
+                value: widget.defaultExportSize,
+                items: const [
+                  DropdownMenuItem(value: 1024, child: Text('1024 px')),
+                  DropdownMenuItem(value: 2048, child: Text('2048 px')),
+                  DropdownMenuItem(value: 4096, child: Text('4096 px')),
+                ],
+                onChanged: (v) {
+                  if (v != null) {
+                    widget.onUpdateSettings(defaultExportSize: v);
+                    Navigator.pop(ctx);
+                  }
+                },
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _renameProjectDialog(StudioProject proj) {
+    final ctrl = TextEditingController(text: proj.name);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename Club Project'),
+        content: TextField(
+          controller: ctrl,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (ctrl.text.trim().isNotEmpty) {
+                proj.name = ctrl.text.trim();
+                _saveOrUpdateProject(proj);
+              }
+              Navigator.pop(ctx);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final activeKit = widget.project.kits[_kitIndex];
-
     return Scaffold(
       appBar: AppBar(
-        title: Text('${widget.project.name} Showcase'),
+        title: const Row(
+          children: [
+            Icon(Icons.shield, color: Color(0xFF00E5A3)),
+            SizedBox(width: 10),
+            Text(
+              'CrestKit Studio',
+              style: TextStyle(fontWeight: FontWeight.w900),
+            ),
+          ],
+        ),
         actions: [
           IconButton(
-            tooltip: 'Toggle Mannequin / Flat-Lay',
-            icon: Icon(
-              _mannequinMode ? Icons.accessibility_new : Icons.layers_outlined,
-            ),
-            onPressed: () => setState(() => _mannequinMode = !_mannequinMode),
-          ),
-          IconButton(
-            tooltip: 'Compare All Kits Lineup',
-            icon: Icon(_showAllKitsLineup ? Icons.person : Icons.view_column),
-            onPressed: () =>
-                setState(() => _showAllKitsLineup = !_showAllKitsLineup),
-          ),
-          IconButton(
-            tooltip: 'Export PDF Spec Sheet',
-            icon: const Icon(Icons.picture_as_pdf),
-            onPressed: () async {
-              final bytes =
-                  await ExportUtils.generateProjectPdfBytes(widget.project);
-              await ExportUtils.shareBytes(
-                bytes: bytes,
-                fileName: '${widget.project.name}_Kits.pdf',
-                mimeType: 'application/pdf',
+            tooltip: 'Onboarding Guide',
+            icon: const Icon(Icons.help_outline),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => OnboardingScreen(
+                    onFinish: () => Navigator.pop(context),
+                  ),
+                ),
               );
             },
           ),
+          IconButton(
+            tooltip: 'Settings',
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: _openSettingsDialog,
+          ),
         ],
       ),
-      body: Column(
+      floatingActionButton: FloatingActionButton.extended(
+        icon: const Icon(Icons.add),
+        label: const Text('New Club Project'),
+        onPressed: () => _createNewProject(),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
         children: [
-          Expanded(
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                CustomPaint(
-                  painter: BackgroundPainter(
-                    preset: _bgPreset,
-                    showMannequinOutline: _mannequinMode && !_showAllKitsLineup,
-                  ),
+          Text(
+            'Your Club Projects (${_projects.length})',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
                 ),
-                if (_showAllKitsLineup)
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Row(
-                      children: widget.project.kits.map((kit) {
-                        return Expanded(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
+          ),
+          const SizedBox(height: 12),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 320,
+              mainAxisExtent: 230,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+            ),
+            itemCount: _projects.length,
+            itemBuilder: (context, index) {
+              final proj = _projects[index];
+              final homeKit = proj.kits.first;
+              return Card(
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: () => _openProject(proj),
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          color: const Color(0xFF0F172A),
+                          padding: const EdgeInsets.all(12),
+                          child: Row(
                             children: [
-                              SizedBox(
-                                height: 64,
-                                width: 64,
-                                child: CustomPaint(
-                                  painter: CrestPainter(
-                                    crest: kit.crest,
-                                    layers: kit.layers,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 12),
                               Expanded(
                                 child: CustomPaint(
-                                  size: const Size(200, 320),
-                                  painter: JerseyPainter(
-                                    jersey: kit.jersey,
-                                    crest: kit.crest,
-                                    crestLayers: kit.layers,
-                                    viewMode: 'full',
+                                  painter: CrestPainter(
+                                    crest: homeKit.crest,
+                                    layers: homeKit.layers,
                                   ),
+                                  child: const SizedBox.expand(),
                                 ),
                               ),
-                              const SizedBox(height: 8),
-                              Text(
-                                kit.name.toUpperCase(),
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 1.5,
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: CustomPaint(
+                                  painter: JerseyPainter(
+                                    jersey: homeKit.jersey,
+                                    crest: homeKit.crest,
+                                    layers: homeKit.layers,
+                                    viewMode: JerseyViewMode.front,
+                                  ),
+                                  child: const SizedBox.expand(),
                                 ),
                               ),
                             ],
                           ),
-                        );
-                      }).toList(),
-                    ),
-                  )
-                else
-                  Center(
-                    child: AspectRatio(
-                      aspectRatio: 1.0,
+                        ),
+                      ),
+                      ListTile(
+                        dense: true,
+                        title: Text(
+                          proj.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        subtitle: Text('${proj.kits.length} Kits • ${proj.squad.length} Squad'),
+                        trailing: PopupMenuButton<String>(
+                          onSelected: (action) {
+                            if (action == 'rename') {
+                              _renameProjectDialog(proj);
+                            } else if (action == 'duplicate') {
+                              final copy = proj.copy(
+                                newId: 'proj_${_uuid.v4().substring(0, 8)}',
+                                newName: '${proj.name} Copy',
+                              );
+                              _saveOrUpdateProject(copy);
+                            } else if (action == 'delete' &&
+                                _projects.length > 1) {
+                              setState(() => _projects.removeAt(index));
+                              _persistProjects();
+                            }
+                          },
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(value: 'rename', child: Text('Rename')),
+                            PopupMenuItem(
+                                value: 'duplicate', child: Text('Duplicate')),
+                            PopupMenuItem(value: 'delete', child: Text('Delete')),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'Quick-Start From 42 Built-in Club & Esports Presets',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 140,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: PresetLibrary.presetKits.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (context, index) {
+                final preset = PresetLibrary.presetKits[index];
+                final previewKit = preset.toKitSet();
+                return SizedBox(
+                  width: 150,
+                  child: Card(
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: () => _createNewProject(fromPreset: preset),
                       child: Padding(
-                        padding: const EdgeInsets.all(20.0),
-                        child: CustomPaint(
-                          painter: JerseyPainter(
-                            jersey: activeKit.jersey,
-                            crest: activeKit.crest,
-                            crestLayers: activeKit.layers,
-                            viewMode: 'full',
-                          ),
+                        padding: const EdgeInsets.all(8),
+                        child: Column(
+                          children: [
+                            Expanded(
+                              child: CustomPaint(
+                                painter: CrestPainter(
+                                  crest: previewKit.crest,
+                                  layers: previewKit.layers,
+                                ),
+                                child: const SizedBox.expand(),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              preset.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              '${preset.sport} • ${preset.style}',
+                              style: const TextStyle(fontSize: 10, color: Colors.grey),
+                            ),
+                          ],
                         ),
                       ),
                     ),
                   ),
-                Positioned(
-                  left: 16,
-                  top: 16,
-                  child: Container(
-                    width: 84,
-                    height: 84,
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: Colors.black45,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.white24),
-                    ),
-                    child: CustomPaint(
-                      painter: CrestPainter(
-                        crest: activeKit.crest,
-                        layers: activeKit.layers,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+                );
+              },
             ),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-            color: Theme.of(context).colorScheme.surface,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(widget.project.kits.length, (i) {
-                    final k = widget.project.kits[i];
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: ChoiceChip(
-                        label: Text(k.name),
-                        selected: _kitIndex == i,
-                        onSelected: (_) => setState(() => _kitIndex = i),
-                      ),
-                    );
-                  }),
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 38,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: PresetLibrary.backgrounds.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 8),
-                    itemBuilder: (context, index) {
-                      final bg = PresetLibrary.backgrounds[index];
-                      final selected = bg.id == _bgPreset.id;
-                      return ChoiceChip(
-                        label: Text(
-                          bg.name,
-                          style: const TextStyle(fontSize: 11),
-                        ),
-                        selected: selected,
-                        onSelected: (_) {
-                          setState(() {
-                            _bgPreset = bg;
-                            widget.project.backgroundId = bg.id;
-                          });
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
+          const SizedBox(height: 80),
         ],
       ),
     );
