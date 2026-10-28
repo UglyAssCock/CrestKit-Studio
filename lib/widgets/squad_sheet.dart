@@ -1,159 +1,201 @@
 import 'package:flutter/material.dart';
+import '../models/scene_models.dart';
+import '../painters/jersey_painter.dart';
 
-class OnboardingScreen extends StatefulWidget {
-  final VoidCallback onComplete;
+class SquadSheet extends StatefulWidget {
+  final StudioProject project;
+  final KitSet kit;
+  final ValueChanged<SquadPlayer> onApplyPlayer;
+  final VoidCallback onMutateSquad;
 
-  const OnboardingScreen({super.key, required this.onComplete});
+  const SquadSheet({
+    super.key,
+    required this.project,
+    required this.kit,
+    required this.onApplyPlayer,
+    required this.onMutateSquad,
+  });
 
   @override
-  State<OnboardingScreen> createState() => _OnboardingScreenState();
+  State<SquadSheet> createState() => _SquadSheetState();
 }
 
-class _OnboardingScreenState extends State<OnboardingScreen> {
-  final PageController _controller = PageController();
-  int _page = 0;
+class _SquadSheetState extends State<SquadSheet> {
+  final TextEditingController _nameCtrl = TextEditingController();
+  final TextEditingController _numCtrl = TextEditingController(text: '12');
+  bool _showNumberGenerator = false;
 
-  static const List<Map<String, dynamic>> _slides = [
-    {
-      'icon': Icons.shield_outlined,
-      'title': '2D Vector Crest Builder',
-      'desc':
-          'Combine 44 heraldic shields, 34 classic divisions, and over 300 flat 2D vector emblems, crowns, laurels, and banners.',
-    },
-    {
-      'icon': Icons.checkroom_outlined,
-      'title': 'Jersey & Full Kit Studio',
-      'desc':
-          'Customize Front, Back, Sleeve, Shorts, and Socks across 35 templates with tappable color zones and 60+ sublimation patterns.',
-    },
-    {
-      'icon': Icons.gesture_outlined,
-      'title': 'Precision Bézier & Node Canvas',
-      'desc':
-          'Draw with Pen, Polygon, Star, and Brush tools. Edit anchor & control handles, mirror in real-time with Symmetry mode, and enjoy unlimited Undo/Redo.',
-    },
-    {
-      'icon': Icons.ios_share_outlined,
-      'title': 'Pro Export (PNG, SVG & PDF)',
-      'desc':
-          'Export transparent PNGs up to 4096px, pure vector SVG files, and full multi-kit PDF spec sheets ready to share.',
-    },
-  ];
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  void _addPlayer() {
+    final name = _nameCtrl.text.trim().toUpperCase();
+    final numVal = int.tryParse(_numCtrl.text.trim()) ?? 0;
+    if (name.isEmpty) return;
+    setState(() {
+      widget.project.squad.add(
+        SquadPlayer(name: name, number: numVal.clamp(0, 99)),
+      );
+      _nameCtrl.clear();
+    });
+    widget.onMutateSquad();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            children: [
-              Align(
-                alignment: Alignment.topRight,
-                child: TextButton(
-                  onPressed: widget.onComplete,
-                  child: const Text('Skip'),
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.78,
+      maxChildSize: 0.94,
+      builder: (context, scrollCtrl) => Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  'Squad Batch Preview & Number Set (0-99)',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
                 ),
+                const Spacer(),
+                FilterChip(
+                  label: const Text('0-99 Grid'),
+                  selected: _showNumberGenerator,
+                  onSelected: (v) => setState(() => _showNumberGenerator = v),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (!_showNumberGenerator) ...[
+              Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: TextField(
+                      controller: _nameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Player Name',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _numCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: '#',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: _addPlayer,
+                    child: const Text('Add'),
+                  ),
+                ],
               ),
+              const SizedBox(height: 12),
               Expanded(
-                child: PageView.builder(
-                  controller: _controller,
-                  itemCount: _slides.length,
-                  onPageChanged: (i) => setState(() => _page = i),
+                child: GridView.builder(
+                  controller: scrollCtrl,
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 160,
+                    mainAxisExtent: 190,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                  ),
+                  itemCount: widget.project.squad.length,
                   itemBuilder: (context, index) {
-                    final s = _slides[index];
-                    return Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          width: 110,
-                          height: 110,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF00E5A3).withOpacity(0.15),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            s['icon'] as IconData,
-                            size: 56,
-                            color: const Color(0xFF00E5A3),
+                    final p = widget.project.squad[index];
+                    final previewJersey = widget.kit.jersey.copy()
+                      ..playerName = p.name
+                      ..playerNumber = p.number.toString();
+                    return Card(
+                      child: InkWell(
+                        onTap: () {
+                          widget.onApplyPlayer(p);
+                          Navigator.pop(context);
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Column(
+                            children: [
+                              Expanded(
+                                child: CustomPaint(
+                                  painter: JerseyPainter(
+                                    jersey: previewJersey,
+                                    crest: widget.kit.crest,
+                                    layers: widget.kit.layers,
+                                    viewMode: JerseyViewMode.back,
+                                  ),
+                                  child: const SizedBox.expand(),
+                                ),
+                              ),
+                              Text(
+                                '#${p.number} ${p.name}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(Icons.delete_outline, size: 16),
+                                onPressed: () {
+                                  setState(
+                                      () => widget.project.squad.removeAt(index));
+                                  widget.onMutateSquad();
+                                },
+                              ),
+                            ],
                           ),
                         ),
-                        const SizedBox(height: 28),
-                        Text(
-                          s['title'] as String,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        Text(
-                          s['desc'] as String,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            color: Colors.grey,
-                            height: 1.4,
-                          ),
-                        ),
-                      ],
+                      ),
                     );
                   },
                 ),
               ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(
-                  _slides.length,
-                  (i) => AnimatedContainer(
-                    duration: const Duration(milliseconds: 250),
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    width: _page == i ? 24 : 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: _page == i
-                          ? const Color(0xFF00E5A3)
-                          : Colors.grey.withOpacity(0.4),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
+            ] else
+              Expanded(
+                child: GridView.builder(
+                  controller: scrollCtrl,
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 74,
+                    mainAxisExtent: 56,
+                    crossAxisSpacing: 6,
+                    mainAxisSpacing: 6,
                   ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: () {
-                    if (_page < _slides.length - 1) {
-                      _controller.nextPage(
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeOut,
-                      );
-                    } else {
-                      widget.onComplete();
-                    }
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    child: Text(
-                      _page < _slides.length - 1 ? 'Next' : 'Launch Studio',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                  itemCount: 100,
+                  itemBuilder: (context, numIdx) {
+                    return OutlinedButton(
+                      onPressed: () {
+                        widget.onApplyPlayer(
+                          SquadPlayer(
+                            name: widget.kit.jersey.playerName,
+                            number: numIdx,
+                          ),
+                        );
+                        Navigator.pop(context);
+                      },
+                      child: Text(
+                        '$numIdx',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
+                        ),
                       ),
-                    ),
-                  ),
+                    );
+                  },
                 ),
               ),
-            ],
-          ),
+          ],
         ),
       ),
     );
