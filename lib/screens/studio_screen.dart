@@ -1033,7 +1033,7 @@ class _StudioScreenState extends State<StudioScreen> {
                 ),
                 ButtonSegment(
                   value: StudioWorkspace.vector,
-                  icon: Icon(Icons.Pentagon_outlined, size: 16),
+                  icon: Icon(Icons.pentagon_outlined, size: 16),
                   label: Text('Vector'),
                 ),
               ],
