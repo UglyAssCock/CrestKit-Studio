@@ -1,425 +1,243 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import '../data/divisions.dart';
-import '../data/elements.dart';
-import '../data/patterns.dart';
-import '../data/shields.dart';
-import '../utils/svg_parser.dart';
+import '../models/scene_models.dart';
 
-class AssetLibrarySheet extends StatefulWidget {
-  final SharedPreferences prefs;
-  final ValueChanged<ShieldAsset> onSelectShield;
-  final ValueChanged<DivisionAsset> onSelectDivision;
-  final ValueChanged<EmblemAsset> onInsertEmblem;
-  final ValueChanged<PatternAsset> onSelectPattern;
-  final VoidCallback onRandomizeAll;
-  final VoidCallback onMixCrest;
+class ColorPickerSheet extends StatefulWidget {
+  final String title;
+  final int initialColor;
+  final StudioProject project;
+  final ValueChanged<int> onSelectColor;
+  final void Function(int primary, int secondary, int accent)
+      onUpdateTeamPalette;
+  final VoidCallback onActivateEyedropper;
 
-  const AssetLibrarySheet({
+  const ColorPickerSheet({
     super.key,
-    required this.prefs,
-    required this.onSelectShield,
-    required this.onSelectDivision,
-    required this.onInsertEmblem,
-    required this.onSelectPattern,
-    required this.onRandomizeAll,
-    required this.onMixCrest,
+    required this.title,
+    required this.initialColor,
+    required this.project,
+    required this.onSelectColor,
+    required this.onUpdateTeamPalette,
+    required this.onActivateEyedropper,
   });
 
   @override
-  State<AssetLibrarySheet> createState() => _AssetLibrarySheetState();
+  State<ColorPickerSheet> createState() => _ColorPickerSheetState();
 }
 
-class _AssetLibrarySheetState extends State<AssetLibrarySheet>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  String _searchQuery = '';
-  String _selectedElementCategory = 'All';
-  late Set<String> _favorites;
-  late List<String> _recentIds;
-  bool _onlyFavorites = false;
+class _ColorPickerSheetState extends State<ColorPickerSheet> {
+  late HSVColor _hsv;
+  late TextEditingController _hexController;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
-    _favorites =
-        (widget.prefs.getStringList('fav_assets') ?? const <String>[]).toSet();
-    _recentIds =
-        List<String>.from(widget.prefs.getStringList('recent_assets') ?? []);
+    _hsv = HSVColor.fromColor(Color(widget.initialColor));
+    _hexController = TextEditingController(text: _toHex(widget.initialColor));
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
+    _hexController.dispose();
     super.dispose();
   }
 
-  void _toggleFavorite(String id) {
+  String _toHex(int val) =>
+      val.toRadixString(16).padLeft(8, '0').substring(2).toUpperCase();
+
+  void _updateFromHsv(HSVColor next) {
     setState(() {
-      if (_favorites.contains(id)) {
-        _favorites.remove(id);
-      } else {
-        _favorites.add(id);
-      }
-      widget.prefs.setStringList('fav_assets', _favorites.toList());
+      _hsv = next;
+      final c = next.toColor().value;
+      _hexController.text = _toHex(c);
     });
+    widget.onSelectColor(_hsv.toColor().value);
   }
 
-  void _recordRecent(String id) {
-    _recentIds.remove(id);
-    _recentIds.insert(0, id);
-    if (_recentIds.length > 24) _recentIds.removeLast();
-    widget.prefs.setStringList('recent_assets', _recentIds);
+  List<Color> _harmonies() {
+    final comp = _hsv.withHue((_hsv.hue + 180) % 360).toColor();
+    final ana1 = _hsv.withHue((_hsv.hue + 30) % 360).toColor();
+    final ana2 = _hsv.withHue((_hsv.hue + 330) % 360).toColor();
+    final tri1 = _hsv.withHue((_hsv.hue + 120) % 360).toColor();
+    final tri2 = _hsv.withHue((_hsv.hue + 240) % 360).toColor();
+    return [comp, ana1, ana2, tri1, tri2];
   }
 
   @override
   Widget build(BuildContext context) {
-    final shields = ShieldLibrary.all.where((s) {
-      final matchesSearch =
-          s.name.toLowerCase().contains(_searchQuery.toLowerCase());
-      final matchesFav = !_onlyFavorites || _favorites.contains(s.id);
-      return matchesSearch && matchesFav;
-    }).toList();
-
-    final divisions = DivisionLibrary.all.where((d) {
-      final matchesSearch =
-          d.name.toLowerCase().contains(_searchQuery.toLowerCase());
-      final matchesFav = !_onlyFavorites || _favorites.contains(d.id);
-      return matchesSearch && matchesFav;
-    }).toList();
-
-    final elements = ElementLibrary.all.where((e) {
-      final matchesCat = _selectedElementCategory == 'All' ||
-          e.category == _selectedElementCategory;
-      final matchesSearch =
-          e.name.toLowerCase().contains(_searchQuery.toLowerCase());
-      final matchesFav = !_onlyFavorites || _favorites.contains(e.id);
-      return matchesCat && matchesSearch && matchesFav;
-    }).toList();
-
-    final patterns = PatternLibrary.all.where((p) {
-      final matchesSearch =
-          p.name.toLowerCase().contains(_searchQuery.toLowerCase());
-      final matchesFav = !_onlyFavorites || _favorites.contains(p.id);
-      return matchesSearch && matchesFav;
-    }).toList();
-
-    return SafeArea(
-      child: SizedBox(
-        height: MediaQuery.of(context).size.height * 0.82,
+    final currentColor = _hsv.toColor();
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: SingleChildScrollView(
         child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
-              child: Row(
-                children: [
-                  const Icon(Icons.auto_awesome, color: Color(0xFF00E5A3)),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      '2D Vector Asset Library',
-                      style:
-                          TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  ActionChip(
-                    avatar: const Icon(Icons.shuffle, size: 16),
-                    label: const Text('Mix Crest'),
-                    onPressed: () {
-                      widget.onMixCrest();
-                      Navigator.pop(context);
-                    },
-                  ),
-                  const SizedBox(width: 6),
-                  ActionChip(
-                    avatar: const Icon(Icons.casino, size: 16),
-                    label: const Text('Randomize'),
-                    onPressed: () {
-                      widget.onRandomizeAll();
-                      Navigator.pop(context);
-                    },
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      decoration: const InputDecoration(
-                        hintText: 'Search shields, lions, crowns, patterns...',
-                        prefixIcon: Icon(Icons.search),
-                        isDense: true,
-                        border: OutlineInputBorder(),
+            Row(
+              children: [
+                CircleAvatar(backgroundColor: currentColor, radius: 16),
+                const SizedBox(width: 10),
+                Text(
+                  widget.title,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
                       ),
-                      onChanged: (v) => setState(() => _searchQuery = v),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  FilterChip(
-                    selected: _onlyFavorites,
-                    label: Text('Favs (${_favorites.length})'),
-                    avatar: Icon(
-                      _onlyFavorites ? Icons.star : Icons.star_border,
-                      size: 16,
-                    ),
-                    onSelected: (v) => setState(() => _onlyFavorites = v),
-                  ),
-                ],
-              ),
-            ),
-            TabBar(
-              controller: _tabController,
-              isScrollable: true,
-              tabs: [
-                Tab(text: 'Emblems (${elements.length})'),
-                Tab(text: 'Shields (${shields.length})'),
-                Tab(text: 'Divisions (${divisions.length})'),
-                Tab(text: 'Patterns (${patterns.length})'),
+                ),
+                const Spacer(),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.colorize, size: 16),
+                  label: const Text('Eyedropper'),
+                  onPressed: widget.onActivateEyedropper,
+                ),
               ],
             ),
-            Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  // Tab 1: Emblems with category filter chips
-                  Column(
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const SizedBox(width: 60, child: Text('Hue')),
+                Expanded(
+                  child: Slider(
+                    value: _hsv.hue,
+                    min: 0,
+                    max: 360,
+                    onChanged: (v) => _updateFromHsv(_hsv.withHue(v)),
+                  ),
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                const SizedBox(width: 60, child: Text('Sat')),
+                Expanded(
+                  child: Slider(
+                    value: _hsv.saturation,
+                    min: 0,
+                    max: 1,
+                    onChanged: (v) => _updateFromHsv(_hsv.withSaturation(v)),
+                  ),
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                const SizedBox(width: 60, child: Text('Value')),
+                Expanded(
+                  child: Slider(
+                    value: _hsv.value,
+                    min: 0,
+                    max: 1,
+                    onChanged: (v) => _updateFromHsv(_hsv.withValue(v)),
+                  ),
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                SizedBox(
+                  width: 140,
+                  child: TextField(
+                    controller: _hexController,
+                    decoration: const InputDecoration(
+                      prefixText: '#',
+                      labelText: 'HEX',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                    onSubmitted: (v) {
+                      final clean = v.replaceAll('#', '').trim();
+                      if (clean.length == 6) {
+                        final parsed = int.tryParse('FF$clean', radix: 16);
+                        if (parsed != null) {
+                          _updateFromHsv(HSVColor.fromColor(Color(parsed)));
+                        }
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Wrap(
+                    spacing: 6,
                     children: [
-                      SizedBox(
-                        height: 44,
-                        child: ListView.separated(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          scrollDirection: Axis.horizontal,
-                          itemCount: ElementLibrary.categories.length,
-                          separatorBuilder: (_, __) => const SizedBox(width: 6),
-                          itemBuilder: (context, idx) {
-                            final cat = ElementLibrary.categories[idx];
-                            final selected = _selectedElementCategory == cat;
-                            return ChoiceChip(
-                              label: Text(cat),
-                              selected: selected,
-                              onSelected: (_) => setState(
-                                () => _selectedElementCategory = cat,
-                              ),
-                            );
-                          },
+                      ActionChip(
+                        avatar: CircleAvatar(
+                          backgroundColor:
+                              Color(widget.project.primaryTeamColor),
+                        ),
+                        label: const Text('Set 1°'),
+                        onPressed: () => widget.onUpdateTeamPalette(
+                          currentColor.value,
+                          widget.project.secondaryTeamColor,
+                          widget.project.accentTeamColor,
                         ),
                       ),
-                      Expanded(
-                        child: GridView.builder(
-                          padding: const EdgeInsets.all(12),
-                          gridDelegate:
-                              const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 4,
-                            mainAxisSpacing: 10,
-                            crossAxisSpacing: 10,
-                            childAspectRatio: 0.82,
-                          ),
-                          itemCount: elements.length,
-                          itemBuilder: (context, index) {
-                            final item = elements[index];
-                            return _buildPathCard(
-                              id: item.id,
-                              title: item.name,
-                              svgPath: item.path,
-                              color: const Color(0xFFD4AF37),
-                              onTap: () {
-                                _recordRecent(item.id);
-                                widget.onInsertEmblem(item);
-                                Navigator.pop(context);
-                              },
-                            );
-                          },
+                      ActionChip(
+                        avatar: CircleAvatar(
+                          backgroundColor:
+                              Color(widget.project.secondaryTeamColor),
+                        ),
+                        label: const Text('Set 2°'),
+                        onPressed: () => widget.onUpdateTeamPalette(
+                          widget.project.primaryTeamColor,
+                          currentColor.value,
+                          widget.project.accentTeamColor,
+                        ),
+                      ),
+                      ActionChip(
+                        avatar: CircleAvatar(
+                          backgroundColor:
+                              Color(widget.project.accentTeamColor),
+                        ),
+                        label: const Text('Set 3°'),
+                        onPressed: () => widget.onUpdateTeamPalette(
+                          widget.project.primaryTeamColor,
+                          widget.project.secondaryTeamColor,
+                          currentColor.value,
                         ),
                       ),
                     ],
                   ),
-
-                  // Tab 2: Shields
-                  GridView.builder(
-                    padding: const EdgeInsets.all(12),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 4,
-                      mainAxisSpacing: 10,
-                      crossAxisSpacing: 10,
-                      childAspectRatio: 0.82,
-                    ),
-                    itemCount: shields.length,
-                    itemBuilder: (context, index) {
-                      final item = shields[index];
-                      return _buildPathCard(
-                        id: item.id,
-                        title: item.name,
-                        svgPath: item.path,
-                        color: const Color(0xFF00E5A3),
-                        onTap: () {
-                          _recordRecent(item.id);
-                          widget.onSelectShield(item);
-                          Navigator.pop(context);
-                        },
-                      );
-                    },
-                  ),
-
-                  // Tab 3: Heraldic Divisions
-                  GridView.builder(
-                    padding: const EdgeInsets.all(12),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 4,
-                      mainAxisSpacing: 10,
-                      crossAxisSpacing: 10,
-                      childAspectRatio: 0.82,
-                    ),
-                    itemCount: divisions.length,
-                    itemBuilder: (context, index) {
-                      final item = divisions[index];
-                      return _buildPathCard(
-                        id: item.id,
-                        title: item.name,
-                        svgPath: item.path,
-                        color: const Color(0xFF38BDF8),
-                        onTap: () {
-                          _recordRecent(item.id);
-                          widget.onSelectDivision(item);
-                          Navigator.pop(context);
-                        },
-                      );
-                    },
-                  ),
-
-                  // Tab 4: Patterns
-                  GridView.builder(
-                    padding: const EdgeInsets.all(12),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 4,
-                      mainAxisSpacing: 10,
-                      crossAxisSpacing: 10,
-                      childAspectRatio: 0.82,
-                    ),
-                    itemCount: patterns.length,
-                    itemBuilder: (context, index) {
-                      final item = patterns[index];
-                      return _buildPathCard(
-                        id: item.id,
-                        title: item.name,
-                        svgPath: item.svgPath,
-                        color: const Color(0xFFF43F5E),
-                        onTap: () {
-                          _recordRecent(item.id);
-                          widget.onSelectPattern(item);
-                          Navigator.pop(context);
-                        },
-                      );
-                    },
-                  ),
-                ],
-              ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Harmony Suggestions (Complementary / Analogous / Triadic)',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              children: _harmonies().map((c) {
+                return GestureDetector(
+                  onTap: () => _updateFromHsv(HSVColor.fromColor(c)),
+                  child: CircleAvatar(backgroundColor: c, radius: 15),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Recent Project Colors',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: widget.project.recentColors.map((val) {
+                return GestureDetector(
+                  onTap: () => _updateFromHsv(HSVColor.fromColor(Color(val))),
+                  child: CircleAvatar(backgroundColor: Color(val), radius: 14),
+                );
+              }).toList(),
             ),
           ],
         ),
       ),
     );
   }
-
-  Widget _buildPathCard({
-    required String id,
-    required String title,
-    required String svgPath,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    final isFav = _favorites.contains(id);
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.white12),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Column(
-          children: [
-            Align(
-              alignment: Alignment.topRight,
-              child: GestureDetector(
-                onTap: () => _toggleFavorite(id),
-                child: Icon(
-                  isFav ? Icons.star : Icons.star_border,
-                  size: 15,
-                  color: isFav ? Colors.amber : Colors.white38,
-                ),
-              ),
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(4.0),
-                child: CustomPaint(
-                  size: const Size(52, 52),
-                  painter: _PathThumbPainter(svgPath: svgPath, color: color),
-                ),
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 10),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PathThumbPainter extends CustomPainter {
-  final String svgPath;
-  final Color color;
-
-  const _PathThumbPainter({required this.svgPath, required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (svgPath.isEmpty) {
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(6)),
-        Paint()..color = color.withOpacity(0.5),
-      );
-      return;
-    }
-    final unit = SvgPathParser.parse(svgPath);
-    final scaled = SvgPathParser.scalePath(unit, size);
-    canvas.drawPath(
-      scaled,
-      Paint()
-        ..style = PaintingStyle.fill
-        ..color = color
-        ..isAntiAlias = true,
-    );
-    canvas.drawPath(
-      scaled,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..color = Colors.white.withOpacity(0.45)
-        ..strokeWidth = math.max(1.0, size.width * 0.025)
-        ..isAntiAlias = true,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _PathThumbPainter oldDelegate) =>
-      oldDelegate.svgPath != svgPath || oldDelegate.color != color;
 }
