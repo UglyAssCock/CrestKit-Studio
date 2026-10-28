@@ -1,262 +1,231 @@
 import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
 import '../models/scene_models.dart';
-import '../painters/jersey_painter.dart';
 
-class SquadSheet extends StatefulWidget {
-  final StudioProject project;
-  final KitSet activeKit;
-  final ValueChanged<SquadPlayer> onSelectPlayer;
-  final VoidCallback onChanged;
+class LayerPanelSheet extends StatefulWidget {
+  final KitSet kit;
+  final int activeLayerIndex;
+  final String? selectedShapeId;
+  final void Function(int layerIndex, String? shapeId) onSelectLayerAndShape;
+  final VoidCallback onMutate;
 
-  const SquadSheet({
+  const LayerPanelSheet({
     super.key,
-    required this.project,
-    required this.activeKit,
-    required this.onSelectPlayer,
-    required this.onChanged,
+    required this.kit,
+    required this.activeLayerIndex,
+    required this.selectedShapeId,
+    required this.onSelectLayerAndShape,
+    required this.onMutate,
   });
 
   @override
-  State<SquadSheet> createState() => _SquadSheetState();
+  State<LayerPanelSheet> createState() => _LayerPanelSheetState();
 }
 
-class _SquadSheetState extends State<SquadSheet>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _LayerPanelSheetState extends State<LayerPanelSheet> {
+  final Uuid _uuid = const Uuid();
+  late int _currentLayer;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  void _addPlayerDialog() async {
-    final nameCtrl = TextEditingController();
-    final numCtrl = TextEditingController(text: '12');
-    final roleCtrl = TextEditingController(text: 'MID');
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add Squad Player'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameCtrl,
-              decoration: const InputDecoration(labelText: 'Shirt Name'),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: numCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Number (0-99)'),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: roleCtrl,
-              decoration: const InputDecoration(labelText: 'Position (GK/DEF/MID/FWD)'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Add'),
-          ),
-        ],
-      ),
-    );
-
-    if (ok == true && nameCtrl.text.trim().isNotEmpty) {
-      setState(() {
-        widget.project.squad.add(
-          SquadPlayer(
-            name: nameCtrl.text.trim().toUpperCase(),
-            number: (int.tryParse(numCtrl.text) ?? 10).clamp(0, 99),
-            role: roleCtrl.text.trim().toUpperCase(),
-          ),
-        );
-      });
-      widget.onChanged();
-    }
+    _currentLayer = widget.activeLayerIndex;
   }
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: SizedBox(
-        height: MediaQuery.of(context).size.height * 0.80,
+    final layers = widget.kit.layers;
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.7,
+      builder: (context, scrollCtrl) => Padding(
+        padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-              child: Row(
-                children: [
-                  const Icon(Icons.groups, color: Color(0xFF00E5A3)),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      'Squad Batch Preview & Number Set (0-99)',
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  FilledButton.tonalIcon(
-                    onPressed: _addPlayerDialog,
-                    icon: const Icon(Icons.person_add, size: 16),
-                    label: const Text('Add Player'),
-                  ),
-                ],
-              ),
-            ),
-            TabBar(
-              controller: _tabController,
-              tabs: [
-                Tab(text: 'Squad Jerseys (${widget.project.squad.length})'),
-                const Tab(text: '0-99 Number Generator'),
+            Row(
+              children: [
+                Text(
+                  'Vector Layers (${layers.length})',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+                const Spacer(),
+                FilledButton.tonalIcon(
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('New Layer'),
+                  onPressed: () {
+                    setState(() {
+                      layers.add(
+                        VectorLayer(
+                          id: 'layer_${_uuid.v4().substring(0, 6)}',
+                          name: 'Layer ${layers.length + 1}',
+                        ),
+                      );
+                      _currentLayer = layers.length - 1;
+                    });
+                    widget.onSelectLayerAndShape(_currentLayer, null);
+                    widget.onMutate();
+                  },
+                ),
               ],
             ),
+            const SizedBox(height: 8),
             Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  // Tab 1: Batch Squad Jersey Previews
-                  GridView.builder(
-                    padding: const EdgeInsets.all(12),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 3,
-                      mainAxisSpacing: 10,
-                      crossAxisSpacing: 10,
-                      childAspectRatio: 0.72,
-                    ),
-                    itemCount: widget.project.squad.length,
-                    itemBuilder: (context, index) {
-                      final player = widget.project.squad[index];
-                      final previewJersey = widget.activeKit.jersey.copy()
-                        ..playerName = player.name
-                        ..playerNumber = player.number.toString();
-
-                      return InkWell(
-                        onTap: () {
-                          widget.onSelectPlayer(player);
-                          Navigator.pop(context);
+              child: ReorderableListView.builder(
+                scrollController: scrollCtrl,
+                itemCount: layers.length,
+                onReorder: (oldIndex, newIndex) {
+                  setState(() {
+                    if (newIndex > oldIndex) newIndex -= 1;
+                    final moved = layers.removeAt(oldIndex);
+                    layers.insert(newIndex, moved);
+                    _currentLayer = newIndex;
+                  });
+                  widget.onMutate();
+                },
+                itemBuilder: (context, index) {
+                  final layer = layers[index];
+                  final isSelected = index == _currentLayer;
+                  return Card(
+                    key: ValueKey(layer.id),
+                    color: isSelected
+                        ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.35)
+                        : null,
+                    child: ExpansionTile(
+                      initiallyExpanded: isSelected,
+                      onExpansionChanged: (_) {
+                        setState(() => _currentLayer = index);
+                        widget.onSelectLayerAndShape(
+                          index,
+                          layer.shapes.isNotEmpty ? layer.shapes.first.id : null,
+                        );
+                      },
+                      leading: IconButton(
+                        icon: Icon(
+                          layer.visible
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                        ),
+                        onPressed: () {
+                          setState(() => layer.visible = !layer.visible);
+                          widget.onMutate();
                         },
-                        child: Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(6),
-                            child: Column(
+                      ),
+                      title: Text(
+                        layer.name,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text('${layer.shapes.length} shapes • ${(layer.opacity * 100).round()}%'),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: 'Lock / Unlock',
+                            icon: Icon(
+                              layer.locked ? Icons.lock : Icons.lock_open,
+                              size: 18,
+                            ),
+                            onPressed: () {
+                              setState(() => layer.locked = !layer.locked);
+                              widget.onMutate();
+                            },
+                          ),
+                          IconButton(
+                            tooltip: 'Duplicate Layer',
+                            icon: const Icon(Icons.copy, size: 18),
+                            onPressed: () {
+                              setState(() {
+                                final dup = layer.copy(
+                                  newId: 'layer_${_uuid.v4().substring(0, 6)}',
+                                )..name = '${layer.name} Copy';
+                                layers.insert(index + 1, dup);
+                              });
+                              widget.onMutate();
+                            },
+                          ),
+                          if (layers.length > 1)
+                            IconButton(
+                              tooltip: 'Delete Layer',
+                              icon: const Icon(Icons.delete_outline, size: 18),
+                              onPressed: () {
+                                setState(() {
+                                  layers.removeAt(index);
+                                  if (_currentLayer >= layers.length) {
+                                    _currentLayer = layers.length - 1;
+                                  }
+                                });
+                                widget.onMutate();
+                              },
+                            ),
+                        ],
+                      ),
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Row(
+                            children: [
+                              const Text('Opacity'),
+                              Expanded(
+                                child: Slider(
+                                  value: layer.opacity,
+                                  min: 0.1,
+                                  max: 1.0,
+                                  onChanged: (v) {
+                                    setState(() => layer.opacity = v);
+                                    widget.onMutate();
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        ...layer.shapes.map((shape) {
+                          final activeShape = shape.id == widget.selectedShapeId;
+                          return ListTile(
+                            dense: true,
+                            selected: activeShape,
+                            leading: CircleAvatar(
+                              backgroundColor: Color(shape.fillColor),
+                              radius: 10,
+                            ),
+                            title: Text(shape.name),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                Expanded(
-                                  child: CustomPaint(
-                                    size: const Size(100, 100),
-                                    painter: JerseyPainter(
-                                      jersey: previewJersey,
-                                      crest: widget.activeKit.crest,
-                                      crestLayers: widget.activeKit.layers,
-                                      viewMode: 'back',
-                                    ),
-                                  ),
+                                IconButton(
+                                  icon: const Icon(Icons.copy, size: 16),
+                                  onPressed: () {
+                                    setState(() {
+                                      final dup = shape.copy(
+                                        newId: 'shape_${_uuid.v4().substring(0, 6)}',
+                                      )
+                                        ..tx += 6
+                                        ..ty += 6;
+                                      layer.shapes.add(dup);
+                                    });
+                                    widget.onMutate();
+                                  },
                                 ),
-                                Text(
-                                  '#${player.number} ${player.name}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      player.role,
-                                      style: const TextStyle(
-                                        fontSize: 10,
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                                    GestureDetector(
-                                      onTap: () {
-                                        setState(() {
-                                          widget.project.squad.removeAt(index);
-                                        });
-                                        widget.onChanged();
-                                      },
-                                      child: const Icon(
-                                        Icons.delete_outline,
-                                        size: 14,
-                                      ),
-                                    ),
-                                  ],
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, size: 16),
+                                  onPressed: () {
+                                    setState(() => layer.shapes.remove(shape));
+                                    widget.onMutate();
+                                  },
                                 ),
                               ],
                             ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-
-                  // Tab 2: 0-99 Number Set Generator
-                  GridView.builder(
-                    padding: const EdgeInsets.all(12),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 5,
-                      mainAxisSpacing: 8,
-                      crossAxisSpacing: 8,
-                    ),
-                    itemCount: 100,
-                    itemBuilder: (context, number) {
-                      return InkWell(
-                        onTap: () {
-                          widget.onSelectPlayer(
-                            SquadPlayer(
-                              name: widget.activeKit.jersey.playerName,
-                              number: number,
-                            ),
+                            onTap: () {
+                              widget.onSelectLayerAndShape(index, shape.id);
+                              Navigator.pop(context);
+                            },
                           );
-                          Navigator.pop(context);
-                        },
-                        borderRadius: BorderRadius.circular(8),
-                        child: Container(
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: Color(
-                              widget.activeKit.jersey.zoneColors['body'] ??
-                                  0xFFDC2626,
-                            ),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.white24),
-                          ),
-                          child: Text(
-                            number.toString(),
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w900,
-                              color:
-                                  Color(widget.activeKit.jersey.numberFillColor),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ],
+                        }),
+                      ],
+                    ),
+                  );
+                },
               ),
             ),
           ],
