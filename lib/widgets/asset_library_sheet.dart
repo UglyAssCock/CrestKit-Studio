@@ -1,344 +1,408 @@
-import 'dart:math' as math;
-import 'dart:ui';
-import '../models/scene_models.dart';
+import 'package:flutter/material.dart';
+import '../data/shields.dart';
+import '../data/divisions.dart';
+import '../data/elements.dart';
+import '../data/patterns.dart';
+import '../data/jerseys.dart';
+import '../data/presets.dart';
+import '../utils/svg_parser.dart';
 
-class SvgPathParser {
-  static final RegExp _tokenRegex = RegExp(
-    r'([MmLlHhVvCcSsQqTtAaZz])|([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)',
-  );
+class AssetLibrarySheet extends StatefulWidget {
+  final int initialTab;
+  final ValueChanged<ShieldAsset> onSelectShield;
+  final ValueChanged<DivisionAsset> onSelectDivision;
+  final ValueChanged<EmblemAsset> onSelectElement;
+  final ValueChanged<PatternAsset> onSelectPattern;
+  final ValueChanged<JerseyTemplateAsset> onSelectTemplate;
+  final ValueChanged<KitPresetData> onSelectPresetKit;
+  final VoidCallback onRandomMix;
 
-  static Path parse(String svgPath) {
-    final path = Path();
-    if (svgPath.trim().isEmpty) return path;
+  const AssetLibrarySheet({
+    super.key,
+    this.initialTab = 0,
+    required this.onSelectShield,
+    required this.onSelectDivision,
+    required this.onSelectElement,
+    required this.onSelectPattern,
+    required this.onSelectTemplate,
+    required this.onSelectPresetKit,
+    required this.onRandomMix,
+  });
 
-    final tokens = _tokenRegex
-        .allMatches(svgPath)
-        .map((m) => m.group(0)!)
-        .toList(growable: false);
+  @override
+  State<AssetLibrarySheet> createState() => _AssetLibrarySheetState();
+}
 
-    int i = 0;
-    String cmd = '';
-    double curX = 0.0;
-    double curY = 0.0;
-    double startX = 0.0;
-    double startY = 0.0;
-    double lastCtrlX = 0.0;
-    double lastCtrlY = 0.0;
+class _AssetLibrarySheetState extends State<AssetLibrarySheet>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  String _searchQuery = '';
+  String _selectedElementCategory = 'All';
+  static final Set<String> _favorites = {};
 
-    bool isCommand(String s) =>
-        s.length == 1 && 'MmLlHhVvCcSsQqTtAaZz'.contains(s);
-
-    double nextNum() {
-      if (i >= tokens.length) return 0.0;
-      return double.tryParse(tokens[i++]) ?? 0.0;
-    }
-
-    while (i < tokens.length) {
-      if (isCommand(tokens[i])) {
-        cmd = tokens[i++];
-      } else if (cmd.isEmpty) {
-        i++;
-        continue;
-      }
-
-      switch (cmd) {
-        case 'M':
-          curX = nextNum();
-          curY = nextNum();
-          startX = curX;
-          startY = curY;
-          path.moveTo(curX, curY);
-          lastCtrlX = curX;
-          lastCtrlY = curY;
-          cmd = 'L';
-          break;
-        case 'm':
-          curX += nextNum();
-          curY += nextNum();
-          startX = curX;
-          startY = curY;
-          path.moveTo(curX, curY);
-          lastCtrlX = curX;
-          lastCtrlY = curY;
-          cmd = 'l';
-          break;
-        case 'L':
-          curX = nextNum();
-          curY = nextNum();
-          path.lineTo(curX, curY);
-          lastCtrlX = curX;
-          lastCtrlY = curY;
-          break;
-        case 'l':
-          curX += nextNum();
-          curY += nextNum();
-          path.lineTo(curX, curY);
-          lastCtrlX = curX;
-          lastCtrlY = curY;
-          break;
-        case 'H':
-          curX = nextNum();
-          path.lineTo(curX, curY);
-          lastCtrlX = curX;
-          lastCtrlY = curY;
-          break;
-        case 'h':
-          curX += nextNum();
-          path.lineTo(curX, curY);
-          lastCtrlX = curX;
-          lastCtrlY = curY;
-          break;
-        case 'V':
-          curY = nextNum();
-          path.lineTo(curX, curY);
-          lastCtrlX = curX;
-          lastCtrlY = curY;
-          break;
-        case 'v':
-          curY += nextNum();
-          path.lineTo(curX, curY);
-          lastCtrlX = curX;
-          lastCtrlY = curY;
-          break;
-        case 'Q':
-          final x1 = nextNum();
-          final y1 = nextNum();
-          curX = nextNum();
-          curY = nextNum();
-          path.quadraticBezierTo(x1, y1, curX, curY);
-          lastCtrlX = x1;
-          lastCtrlY = y1;
-          break;
-        case 'q':
-          final x1 = curX + nextNum();
-          final y1 = curY + nextNum();
-          curX += nextNum();
-          curY += nextNum();
-          path.quadraticBezierTo(x1, y1, curX, curY);
-          lastCtrlX = x1;
-          lastCtrlY = y1;
-          break;
-        case 'T':
-          final x1 = 2 * curX - lastCtrlX;
-          final y1 = 2 * curY - lastCtrlY;
-          curX = nextNum();
-          curY = nextNum();
-          path.quadraticBezierTo(x1, y1, curX, curY);
-          lastCtrlX = x1;
-          lastCtrlY = y1;
-          break;
-        case 't':
-          final x1 = 2 * curX - lastCtrlX;
-          final y1 = 2 * curY - lastCtrlY;
-          curX += nextNum();
-          curY += nextNum();
-          path.quadraticBezierTo(x1, y1, curX, curY);
-          lastCtrlX = x1;
-          lastCtrlY = y1;
-          break;
-        case 'C':
-          final x1 = nextNum();
-          final y1 = nextNum();
-          final x2 = nextNum();
-          final y2 = nextNum();
-          curX = nextNum();
-          curY = nextNum();
-          path.cubicTo(x1, y1, x2, y2, curX, curY);
-          lastCtrlX = x2;
-          lastCtrlY = y2;
-          break;
-        case 'c':
-          final x1 = curX + nextNum();
-          final y1 = curY + nextNum();
-          final x2 = curX + nextNum();
-          final y2 = curY + nextNum();
-          curX += nextNum();
-          curY += nextNum();
-          path.cubicTo(x1, y1, x2, y2, curX, curY);
-          lastCtrlX = x2;
-          lastCtrlY = y2;
-          break;
-        case 'S':
-          final x1 = 2 * curX - lastCtrlX;
-          final y1 = 2 * curY - lastCtrlY;
-          final x2 = nextNum();
-          final y2 = nextNum();
-          curX = nextNum();
-          curY = nextNum();
-          path.cubicTo(x1, y1, x2, y2, curX, curY);
-          lastCtrlX = x2;
-          lastCtrlY = y2;
-          break;
-        case 's':
-          final x1 = 2 * curX - lastCtrlX;
-          final y1 = 2 * curY - lastCtrlY;
-          final x2 = curX + nextNum();
-          final y2 = curY + nextNum();
-          curX += nextNum();
-          curY += nextNum();
-          path.cubicTo(x1, y1, x2, y2, curX, curY);
-          lastCtrlX = x2;
-          lastCtrlY = y2;
-          break;
-        case 'A':
-        case 'a':
-          final isRel = cmd == 'a';
-          final rx = nextNum().abs();
-          final ry = nextNum().abs();
-          final xAxisRot = nextNum() * math.pi / 180.0;
-          final largeArc = nextNum() != 0.0;
-          final sweep = nextNum() != 0.0;
-          final endX = isRel ? curX + nextNum() : nextNum();
-          final endY = isRel ? curY + nextNum() : nextNum();
-          if (rx == 0 || ry == 0) {
-            path.lineTo(endX, endY);
-          } else {
-            path.arcToPoint(
-              Offset(endX, endY),
-              radius: Radius.elliptical(rx, ry),
-              rotation: xAxisRot,
-              largeArc: largeArc,
-              clockwise: sweep,
-            );
-          }
-          curX = endX;
-          curY = endY;
-          lastCtrlX = curX;
-          lastCtrlY = curY;
-          break;
-        case 'Z':
-        case 'z':
-          path.close();
-          curX = startX;
-          curY = startY;
-          lastCtrlX = curX;
-          lastCtrlY = curY;
-          cmd = '';
-          break;
-        default:
-          i++;
-          break;
-      }
-    }
-
-    return path;
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(
+      length: 6,
+      vsync: this,
+      initialIndex: widget.initialTab.clamp(0, 5),
+    );
   }
 
-  static String nodesToSvgPath(List<VectorNode> nodes, {bool closed = true}) {
-    if (nodes.isEmpty) return '';
-    final sb = StringBuffer();
-    final first = nodes.first;
-    sb.write('M ${first.x.toStringAsFixed(1)}${first.y.toStringAsFixed(1)} ');
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
 
-    for (int i = 1; i < nodes.length; i++) {
-      final prev = nodes[i - 1];
-      final curr = nodes[i];
-      if (prev.ctrl2X != null &&
-          prev.ctrl2Y != null &&
-          curr.ctrl1X != null &&
-          curr.ctrl1Y != null) {
-        sb.write(
-          'C ${prev.ctrl2X!.toStringAsFixed(1)}${prev.ctrl2Y!.toStringAsFixed(1)} '
-          '${curr.ctrl1X!.toStringAsFixed(1)}${curr.ctrl1Y!.toStringAsFixed(1)} '
-          '${curr.x.toStringAsFixed(1)}${curr.y.toStringAsFixed(1)} ',
+  @override
+  Widget build(BuildContext context) {
+    final allElements = ElementLibrary.all;
+    final filteredElements = allElements.where((e) {
+      final matchesCat = _selectedElementCategory == 'All' ||
+          (_selectedElementCategory == 'Favorites' && _favorites.contains(e.id)) ||
+          e.category == _selectedElementCategory;
+      final matchesSearch = _searchQuery.isEmpty ||
+          e.name.toLowerCase().contains(_searchQuery.toLowerCase());
+      return matchesCat && matchesSearch;
+    }).toList();
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.85,
+      maxChildSize: 0.95,
+      builder: (context, scrollCtrl) => Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    decoration: const InputDecoration(
+                      hintText: 'Search 500+ shields, emblems, patterns, kits...',
+                      prefixIcon: Icon(Icons.search),
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (v) => setState(() => _searchQuery = v),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton.tonalIcon(
+                  icon: const Icon(Icons.shuffle, size: 18),
+                  label: const Text('Mix'),
+                  onPressed: () {
+                    widget.onRandomMix();
+                    Navigator.pop(context);
+                  },
+                ),
+              ],
+            ),
+          ),
+          TabBar(
+            controller: _tabController,
+            isScrollable: true,
+            tabs: [
+              Tab(text: 'Shields (${ShieldLibrary.all.length})'),
+              Tab(text: 'Divisions (${DivisionLibrary.all.length})'),
+              Tab(text: 'Emblems (${allElements.length})'),
+              Tab(text: 'Patterns (${PatternLibrary.all.length})'),
+              Tab(text: 'Jerseys (${JerseyLibrary.templates.length})'),
+              Tab(text: 'Preset Kits (${PresetLibrary.presetKits.length})'),
+            ],
+          ),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildPathGrid(
+                  scrollCtrl: scrollCtrl,
+                  items: ShieldLibrary.all
+                      .where((s) => s.name
+                          .toLowerCase()
+                          .contains(_searchQuery.toLowerCase()))
+                      .map((s) => (s.id, s.name, s.category, s.path, () {
+                            widget.onSelectShield(s);
+                            Navigator.pop(context);
+                          }))
+                      .toList(),
+                ),
+                _buildPathGrid(
+                  scrollCtrl: scrollCtrl,
+                  items: DivisionLibrary.all
+                      .where((d) => d.name
+                          .toLowerCase()
+                          .contains(_searchQuery.toLowerCase()))
+                      .map((d) => (d.id, d.name, d.category, d.path, () {
+                            widget.onSelectDivision(d);
+                            Navigator.pop(context);
+                          }))
+                      .toList(),
+                ),
+                Column(
+                  children: [
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      child: Row(
+                        children: [
+                          'All',
+                          'Favorites',
+                          ...ElementLibrary.categories.skip(1),
+                        ].map((cat) {
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: ChoiceChip(
+                              label: Text(cat),
+                              selected: _selectedElementCategory == cat,
+                              onSelected: (_) => setState(
+                                  () => _selectedElementCategory = cat),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    Expanded(
+                      child: _buildPathGrid(
+                        scrollCtrl: scrollCtrl,
+                        items: filteredElements
+                            .map((e) => (e.id, e.name, e.category, e.path, () {
+                                  widget.onSelectElement(e);
+                                  Navigator.pop(context);
+                                }))
+                            .toList(),
+                      ),
+                    ),
+                  ],
+                ),
+                _buildPathGrid(
+                  scrollCtrl: scrollCtrl,
+                  items: PatternLibrary.all
+                      .where((p) => p.name
+                          .toLowerCase()
+                          .contains(_searchQuery.toLowerCase()))
+                      .map((p) => (p.id, p.name, p.category, p.svgPath, () {
+                            widget.onSelectPattern(p);
+                            Navigator.pop(context);
+                          }))
+                      .toList(),
+                ),
+                _buildPathGrid(
+                  scrollCtrl: scrollCtrl,
+                  items: JerseyLibrary.templates
+                      .where((t) => t.name
+                          .toLowerCase()
+                          .contains(_searchQuery.toLowerCase()))
+                      .map((t) => (
+                            t.id,
+                            t.name,
+                            t.category,
+                            '${t.bodyFrontPath} ${t.sleevesFrontPath}',
+                            () {
+                              widget.onSelectTemplate(t);
+                              Navigator.pop(context);
+                            }
+                          ))
+                      .toList(),
+                ),
+                GridView.builder(
+                  controller: scrollCtrl,
+                  padding: const EdgeInsets.all(12),
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 175,
+                    mainAxisExtent: 120,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                  ),
+                  itemCount: PresetLibrary.presetKits.length,
+                  itemBuilder: (context, index) {
+                    final preset = PresetLibrary.presetKits[index];
+                    return Card(
+                      child: InkWell(
+                        onTap: () {
+                          widget.onSelectPresetKit(preset);
+                          Navigator.pop(context);
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(10),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  CircleAvatar(
+                                      backgroundColor:
+                                          Color(preset.primaryColor),
+                                      radius: 12),
+                                  const SizedBox(width: 4),
+                                  CircleAvatar(
+                                      backgroundColor:
+                                          Color(preset.secondaryColor),
+                                      radius: 12),
+                                  const SizedBox(width: 4),
+                                  CircleAvatar(
+                                      backgroundColor:
+                                          Color(preset.accentColor),
+                                      radius: 12),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                preset.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
+                              Text(
+                                '${preset.sport} • ${preset.style}',
+                                style: const TextStyle(
+                                    fontSize: 11, color: Colors.grey),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPathGrid({
+    required ScrollController scrollCtrl,
+    required List<(String id, String name, String cat, String path, VoidCallback onTap)>
+        items,
+  }) {
+    return GridView.builder(
+      controller: scrollCtrl,
+      padding: const EdgeInsets.all(12),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 130,
+        mainAxisExtent: 130,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final item = items[index];
+        final isFav = _favorites.contains(item.$1);
+        return Card(
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: item.$5,
+            child: Stack(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: CustomPaint(
+                          painter: _MiniPathThumbnailPainter(
+                            svgPath: item.$4,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                          child: const SizedBox.expand(),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        item.$2,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 11, fontWeight: FontWeight.w600),
+                      ),
+                      Text(
+                        item.$3,
+                        maxLines: 1,
+                        style:
+                            const TextStyle(fontSize: 9, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+                Positioned(
+                  top: 0,
+                  right: 0,
+                  child: IconButton(
+                    visualDensity: VisualDensity.compact,
+                    iconSize: 15,
+                    icon: Icon(
+                      isFav ? Icons.favorite : Icons.favorite_border,
+                      color: isFav ? Colors.redAccent : Colors.grey,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        if (isFav) {
+                          _favorites.remove(item.$1);
+                        } else {
+                          _favorites.add(item.$1);
+                        }
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
         );
-      } else if (curr.ctrl1X != null && curr.ctrl1Y != null) {
-        sb.write(
-          'Q ${curr.ctrl1X!.toStringAsFixed(1)}${curr.ctrl1Y!.toStringAsFixed(1)} '
-          '${curr.x.toStringAsFixed(1)}${curr.y.toStringAsFixed(1)} ',
-        );
-      } else {
-        sb.write('L ${curr.x.toStringAsFixed(1)}${curr.y.toStringAsFixed(1)} ');
-      }
-    }
+      },
+    );
+  }
+}
 
-    if (closed && nodes.length > 2) {
-      sb.write('Z');
+class _MiniPathThumbnailPainter extends CustomPainter {
+  final String svgPath;
+  final Color color;
+
+  const _MiniPathThumbnailPainter({
+    required this.svgPath,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final side = size.shortestSide;
+    final dx = (size.width - side) / 2;
+    final dy = (size.height - side) / 2;
+    canvas.save();
+    canvas.translate(dx, dy);
+    if (svgPath.trim().isEmpty) {
+      canvas.drawRect(
+        Rect.fromLTWH(side * 0.15, side * 0.15, side * 0.7, side * 0.7),
+        Paint()..color = color,
+      );
+    } else {
+      final path = SvgParser.parse(svgPath, targetSize: Size(side, side));
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = color.withValues(alpha: 0.85)
+          ..style = PaintingStyle.fill,
+      );
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2,
+      );
     }
-    return sb.toString().trim();
+    canvas.restore();
   }
 
-  static List<VectorNode> extractNodesFromPath(String svgPath) {
-    final tokens = _tokenRegex
-        .allMatches(svgPath)
-        .map((m) => m.group(0)!)
-        .toList(growable: false);
-    final result = <VectorNode>[];
-    int i = 0;
-    String cmd = '';
-    double curX = 0;
-    double curY = 0;
-
-    bool isCommand(String s) =>
-        s.length == 1 && 'MmLlHhVvCcSsQqTtAaZz'.contains(s);
-    double nextNum() =>
-        i < tokens.length ? (double.tryParse(tokens[i++]) ?? 0.0) : 0.0;
-
-    while (i < tokens.length) {
-      if (isCommand(tokens[i])) {
-        cmd = tokens[i++];
-      } else if (cmd.isEmpty) {
-        i++;
-        continue;
-      }
-
-      if (cmd == 'M' || cmd == 'L') {
-        curX = nextNum();
-        curY = nextNum();
-        result.add(VectorNode(x: curX, y: curY));
-        if (cmd == 'M') cmd = 'L';
-      } else if (cmd == 'Q') {
-        final cx = nextNum();
-        final cy = nextNum();
-        curX = nextNum();
-        curY = nextNum();
-        result.add(VectorNode(x: curX, y: curY, ctrl1X: cx, ctrl1Y: cy));
-      } else if (cmd == 'C') {
-        final c1x = nextNum();
-        final c1y = nextNum();
-        final c2x = nextNum();
-        final c2y = nextNum();
-        curX = nextNum();
-        curY = nextNum();
-        if (result.isNotEmpty) {
-          result.last.ctrl2X = c1x;
-          result.last.ctrl2Y = c1y;
-        }
-        result.add(VectorNode(x: curX, y: curY, ctrl1X: c2x, ctrl1Y: c2y));
-      } else if (cmd == 'Z' || cmd == 'z') {
-        cmd = '';
-      } else {
-        i++;
-      }
-    }
-    return result;
-  }
-
-  static Path createDashedPath(Path source, double dashLength, double dashGap) {
-    if (dashLength <= 0 || dashGap <= 0) return source;
-    final dest = Path();
-    for (final PathMetric metric in source.computeMetrics()) {
-      double distance = 0.0;
-      bool draw = true;
-      while (distance < metric.length) {
-        final len = draw ? dashLength : dashGap;
-        if (draw) {
-          dest.addPath(
-            metric.extractPath(distance, math.min(distance + len, metric.length)),
-            Offset.zero,
-          );
-        }
-        distance += len;
-        draw = !draw;
-      }
-    }
-    return dest;
-  }
-
-  static Path scalePath(Path unitPath, Size size) {
-    final sx = size.width / 100.0;
-    final sy = size.height / 100.0;
-    final m = Matrix4.identity()..scale(sx, sy);
-    return unitPath.transform(m.storage);
-  }
+  @override
+  bool shouldRepaint(covariant _MiniPathThumbnailPainter oldDelegate) =>
+      oldDelegate.svgPath != svgPath || oldDelegate.color != color;
 }
