@@ -25,7 +25,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       'Customize 35+ sports & esports templates across front, back, sleeve, shorts, and socks views with 60+ sublimation patterns.',
     ),
     (
-      Icons.auto_Graph_outlined,
+      Icons.auto_graph_outlined,
       'Full Bézier Canvas & Export',
       'Edit nodes, mirror with live symmetry, batch-preview your squad (0-99), and export 4096px PNGs, pure 2D SVGs, and PDF print sheets.',
     ),
