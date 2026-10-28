@@ -487,7 +487,7 @@ class PatternLibrary {
           svgPath:
               'M 50 12 L 84 30 L 50 48 L 16 30 Z M 16 30 L 50 48 L 50 86 L 16 68 Z',
         ),
-        const PatternAsset(
+        PatternAsset(
           id: 'sublimation_geo_10',
           name: 'Sublimation Bruised Banana V10',
           category: 'Sublimation',
